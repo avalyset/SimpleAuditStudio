@@ -394,3 +394,32 @@ class TraceContextModelAuditor(_SimpleAuditModelAuditor):
         registry = _auditor_registry.get()
         if registry is not None:
             registry.append(self)
+
+
+def decision_auditor_class(make_target: Any) -> type:
+    """A ModelAuditor subclass that sends to an explicit, non-model Target.
+
+    The repetition runner builds its own auditors, so a decision run cannot
+    just call ``set_target`` on one instance — the class itself has to install
+    the target. ``make_target`` is called once per auditor, since a
+    ``DecisionTarget`` owns an HTTP client.
+
+    No trace-context adapter here: that adapter wraps the OpenAI-compatible
+    chat client, which a decision target does not use.
+    """
+
+    class _DecisionModelAuditor(_SimpleAuditModelAuditor):
+        # Set on this class only, never on the shared ModelAuditor: see
+        # infra.engine.without_target_client.
+        _skip_target_client = True
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.set_target(make_target())
+            # Registered like TraceContextModelAuditor, so the engine closes
+            # this rep's auditor and judge clients before its loop shuts down.
+            registry = _auditor_registry.get()
+            if registry is not None:
+                registry.append(self)
+
+    return _DecisionModelAuditor
